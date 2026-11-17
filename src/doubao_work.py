@@ -199,12 +199,16 @@ class DoubaoWorkClient:
                     f" data_keys={list(data.keys())} "
                     f"ug_campaign_info={json.dumps(info, ensure_ascii=False)[:200]}"
                 )
-            raise DoubaoWorkError(
-                FAILED,
-                f"launch 未返回活动组 campaign_group_code{diag}",
-                status,
-                text[:300],
-            )
+            empty_group = isinstance(info, dict) and not info.get("campaign_group_code")
+            if empty_group:
+                message = (
+                    "活动组为空：Cookie 登录有效，但当前出口 IP 不在活动投放地区"
+                    "（GitHub 海外 runner 常见）；需走国内代理/国内出口后再试。"
+                    + diag
+                )
+            else:
+                message = f"launch 未返回活动组 campaign_group_code{diag}"
+            raise DoubaoWorkError(FAILED, message, status, text[:300])
         logger.info("活动组已识别", group=group)
         return str(group)
 
