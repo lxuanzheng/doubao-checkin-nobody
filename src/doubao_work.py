@@ -193,7 +193,18 @@ class DoubaoWorkClient:
         if not group and isinstance(data, dict):
             group = data.get("campaign_group_code") or data.get("campaign_code")
         if not group:
-            raise DoubaoWorkError(FAILED, "launch 未返回活动组 campaign_group_code", status, text[:300])
+            diag = ""
+            if isinstance(data, dict):
+                diag = (
+                    f" data_keys={list(data.keys())} "
+                    f"ug_campaign_info={json.dumps(info, ensure_ascii=False)[:200]}"
+                )
+            raise DoubaoWorkError(
+                FAILED,
+                f"launch 未返回活动组 campaign_group_code{diag}",
+                status,
+                text[:300],
+            )
         logger.info("活动组已识别", group=group)
         return str(group)
 
