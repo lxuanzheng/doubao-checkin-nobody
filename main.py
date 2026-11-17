@@ -26,8 +26,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from src import __version__, logger  # noqa: E402
-from src.client import ALREADY, AUTH_FAILED, RISK, SUCCESS, CheckinClient, CheckinResult  # noqa: E402
+from src.client import ALREADY, AUTH_FAILED, RISK, SUCCESS, CheckinResult  # noqa: E402
 from src.config import Config, ConfigError, load_config  # noqa: E402
+from src.doubao_work import DoubaoWorkClient  # noqa: E402
 from src.notifier import build_message, notify  # noqa: E402
 
 EXIT_OK = 0
@@ -49,10 +50,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def describe_request(config: Config) -> None:
-    logger.info("配置检查通过", method=config.method, url=config.url)
+    logger.info("配置检查通过", base_url=config.base_url, client=config.client_version)
     logger.info("Cookie", value=logger.mask(config.cookie))
-    logger.info("请求头", keys=", ".join(sorted(config.headers)))
-    logger.info("请求体", body=config.body[:200] if config.body else "<empty>")
     logger.info("超时/重试", timeout=f"{config.timeout}s", retries=config.retries)
     logger.info("通知通道", channels=", ".join(config.notify_channels) or "<none>")
 
@@ -87,21 +86,16 @@ def main(argv: list[str] | None = None) -> int:
         logger.ok("配置文件完整，可以开始签到")
         return EXIT_OK
 
-    if args.dry_run:
-        with logger.section("Dry Run（未发送真实请求）"):
-            logger.info(f"将请求 {config.method} {config.url}")
-            logger.info(f"Header count = {len(config.headers)}")
-            logger.info(f"Body = {config.body or '<empty>'}")
-            logger.ok("dry-run 结束，未产生任何真实请求")
-        return EXIT_OK
+    client = DoubaoWorkClient(config)
 
     result: CheckinResult
-    with logger.section("执行签到"):
-        client = CheckinClient(config)
-        try:
+    if args.dry_run:
+        with logger.section("Dry Run（只读探测，不领取）"):
+            result = client.probe()
+            logger.ok("dry-run 结束，未提交领取请求")
+    else:
+        with logger.section("执行签到"):
             result = client.run()
-        finally:
-            client.close()
 
     if result.status == SUCCESS:
         logger.ok(result.message, amount=result.amount or "-", elapsed=f"{result.elapsed:.2f}s")
@@ -119,7 +113,7 @@ def main(argv: list[str] | None = None) -> int:
 
     write_step_summary(result)
 
-    if not args.no_notify and config.notify_channels:
+    if not args.no_notify and not args.dry_run and config.notify_channels:
         with logger.section("发送通知"):
             notify(result, config.notify_channels, config.notify_on_already)
 

@@ -13,7 +13,7 @@ from pathlib import Path
 
 DEFAULT_SUCCESS_KEYWORDS = ["签到成功", "领取成功", "签到完成", "success"]
 DEFAULT_ALREADY_KEYWORDS = ["已签到", "已经签到", "今日已领", "重复签到", "already"]
-DEFAULT_AUTH_KEYWORDS = ["未登录", "登录已过期", "not login", "unauthorized", "401", "403"]
+DEFAULT_AUTH_KEYWORDS = ["未登录", "登录已过期", "not login", "unauthorized", "登录失效"]
 DEFAULT_RISK_KEYWORDS = ["风控", "验证", "captcha", "risk", "verify", "频繁"]
 
 DEFAULT_UA = (
@@ -28,6 +28,8 @@ class ConfigError(Exception):
 
 def _load_dotenv() -> None:
     """优先用 python-dotenv，没装则用内置的简易解析，保证零依赖也能跑。"""
+    if os.getenv("DOUBAO_DISABLE_DOTENV") == "1":
+        return
     env_path = Path(".env")
     if not env_path.exists():
         return
@@ -78,7 +80,7 @@ def _parse_json_env(raw: str, name: str) -> dict:
 class Config:
     # —— 必填 ——
     cookie: str
-    url: str
+    url: str = ""
 
     # —— 请求 ——
     method: str = "POST"
@@ -87,6 +89,14 @@ class Config:
     timeout: float = 20.0
     retries: int = 3
     retry_backoff: float = 3.0
+
+    # —— 豆包工作链路 ——
+    base_url: str = "https://www.doubao.com"
+    client_version: str = "2.33.5"
+    runtime_version: str = "3.42.2"
+    device_id: str = ""
+    web_id: str = ""
+    fingerprint: str = ""
 
     # —— 结果判定 ——
     success_keywords: list = field(default_factory=lambda: list(DEFAULT_SUCCESS_KEYWORDS))
@@ -101,7 +111,7 @@ class Config:
 
     @property
     def is_configured(self) -> bool:
-        return bool(self.cookie and self.url)
+        return bool(self.cookie)
 
 
 def load_config() -> Config:
@@ -114,12 +124,7 @@ def load_config() -> Config:
         raise ConfigError(
             "缺少 DOUBAO_COOKIE：请把浏览器里豆包的 Cookie 填进环境变量或 .env。"
         )
-    if not url:
-        raise ConfigError(
-            "缺少 DOUBAO_CHECKIN_URL：请把抓包拿到的签到接口地址填进环境变量或 .env。\n"
-            "不知道接口地址？先看 docs/抓包指南.md。"
-        )
-    if not url.startswith(("http://", "https://")):
+    if url and not url.startswith(("http://", "https://")):
         raise ConfigError(f"DOUBAO_CHECKIN_URL 必须是完整的 http(s) 地址，当前为：{url}")
 
     method = _get("DOUBAO_CHECKIN_METHOD", default="POST").upper()
@@ -148,6 +153,8 @@ def load_config() -> Config:
     except ValueError as exc:
         raise ConfigError("DOUBAO_RETRY 必须是整数") from exc
 
+    base_url = _get("DOUBAO_BASE_URL", default="https://www.doubao.com").strip().rstrip("/")
+
     return Config(
         cookie=cookie,
         url=url,
@@ -157,6 +164,12 @@ def load_config() -> Config:
         timeout=float(_get("DOUBAO_TIMEOUT", default="20")),
         retries=retries,
         retry_backoff=float(_get("DOUBAO_RETRY_BACKOFF", default="3")),
+        base_url=base_url,
+        client_version=_get("DOUBAO_CLIENT_VERSION", default="2.33.5"),
+        runtime_version=_get("DOUBAO_RUNTIME_VERSION", default="3.42.2"),
+        device_id=_get("DOUBAO_DEVICE_ID"),
+        web_id=_get("DOUBAO_WEB_ID"),
+        fingerprint=_get("DOUBAO_FINGERPRINT"),
         success_keywords=_split_list(_get("DOUBAO_SUCCESS_KEYWORDS")) or list(DEFAULT_SUCCESS_KEYWORDS),
         already_keywords=_split_list(_get("DOUBAO_ALREADY_KEYWORDS")) or list(DEFAULT_ALREADY_KEYWORDS),
         auth_keywords=_split_list(_get("DOUBAO_AUTH_KEYWORDS")) or list(DEFAULT_AUTH_KEYWORDS),

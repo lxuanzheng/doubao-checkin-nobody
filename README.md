@@ -1,6 +1,6 @@
 # 豆包「天天领额度」每日自动签到
 
-> 每天凌晨自动帮你领掉豆包电脑端「天天领额度」的 200 活动额度，连续签到不断签。
+> 每天早上自动帮你领掉豆包电脑端「天天领额度」的 200 活动额度，连续签到不断签。
 > 跑在 GitHub Actions 上，零服务器、零依赖、零成本。
 
 ![Python](https://img.shields.io/badge/Python-3.9%2B-blue)
@@ -16,7 +16,7 @@
 
 问题是——**得每天记着点那一一下**。断一天，连续天数从头算。
 
-这个项目把「点那一下」交给 GitHub Actions：每天北京时间 00:05 自动请求签到接口，成功与否通过 Server 酱 / 企业微信 / Telegram / Bark 推给你，签到结果同时写进 Actions 任务页的摘要里。
+这个项目把「点那一下」交给 GitHub Actions：每天北京时间 08:20 自动请求签到接口，成功与否通过 Server 酱 / 企业微信 / Telegram / Bark 推给你，签到结果同时写进 Actions 任务页的摘要里。
 
 **它不是外挂，也不模拟客户端**，只是替你发出那一次 HTTP 请求。所以：
 
@@ -30,13 +30,13 @@
 
 | 能力 | 说明 |
 | --- | --- |
-| ⏰ 凌晨自动执行 | 北京时间 00:05 主跑 + 00:35 兜底重跑，防止 GitHub 定时任务丢跑 |
+| ⏰ 定时自动执行 | 北京时间 08:20 主跑 + 08:50 兜底重跑，防止 GitHub 定时任务丢跑 |
 | 🔁 幂等 | 「今日已签到」被识别为成功，跑两次也不会报错、不会重复领 |
-| 🧠 智能判定 | 关键词 + JSON 字段双重判定，兼容接口返回 `\u7b7e\u5230` 转义中文 |
+| 🔗 三步链路 | `launch` 发现活动组 → `detail` 读取签到状态 → `landing/checkin` 领取并回查 `checked_in_today` 确认 |
+| 🧠 状态判定 | 以详情回查的今日签到状态为准，不把单个 `code=0` 当作成功 |
 | 🛡️ 凭据安全 | Cookie 只存 GitHub Secrets，日志全程脱敏，仓库里不存在任何明文 |
 | 📮 多渠道通知 | Server 酱 / 企业微信机器人 / Telegram / Bark / 自定义 Webhook |
-| 🧪 可测试 | 28 项单元 + 端到端测试，本地起假接口就能验证整条链路 |
-| 🔧 配置驱动 | 接口地址、请求体、判定关键词全部走环境变量，官方改版改配置即可，不用改代码 |
+| 🧪 可测试 | 32 项单元 + 端到端测试，本地起假接口就能验证整条链路 |
 | 🩺 保活机制 | 每月自动心跳提交，避免公开仓库 60 天无活动导致定时任务被暂停 |
 
 ---
@@ -49,47 +49,41 @@
 
 > 为什么要 Fork 而不是直接用？因为 Secrets 只能配在自己的仓库里。
 
-### 第 2 步：抓两个值
+### 第 2 步：抓 Cookie
 
-你需要拿到 **签到接口地址** 和 **Cookie**。完整图文步骤见 [docs/抓包指南.md](docs/抓包指南.md)，简述如下：
+三步链路会自动发现活动组和领取路径，**只需要 Cookie**，不用手动找签到接口。
 
 1. 电脑浏览器打开 <https://www.doubao.com> 并登录
-2. 按 `F12` 打开开发者工具 → `Console` 面板
-3. 复制 [tools/capture-snippet.js](tools/capture-snippet.js) 全部内容粘贴进去，回车
-4. 回到豆包页面，点一下「签到」
-5. 控制台会直接打印出可以粘贴的配置，以及接口的原始响应
-
-如果你已经知道接口地址，也可以跳过脚本，直接在 `Network` 面板里找到那条请求，右键 → `Copy as cURL`，从中取出 URL、请求体和 Cookie。
+2. `F12` → **Network** 面板 → 任选一条请求 → **Request Headers** → 复制完整 `Cookie`（需含 `sessionid` 或 `sessionid_ss`）
+3. 也可以用 [tools/capture-snippet.js](tools/capture-snippet.js) 在 Console 里辅助观察请求
 
 ### 第 3 步：配置 Secrets
 
-进入你 Fork 后的仓库 → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**，至少添加这两个：
+进入你 Fork 后的仓库 → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**，添加：
 
-| Name | Value |
-| --- | --- |
-| `DOUBAO_COOKIE` | 浏览器里豆包的完整 Cookie 字符串 |
-| `DOUBAO_CHECKIN_URL` | 签到接口的完整地址，`https://` 开头 |
+| Name | 必填 | Value |
+| --- | --- | --- |
+| `DOUBAO_COOKIE` | ✅ | 浏览器里豆包的完整 Cookie 字符串 |
 
-按抓包结果，可能还需要补 `DOUBAO_CHECKIN_METHOD`、`DOUBAO_CHECKIN_BODY`、`DOUBAO_EXTRA_HEADERS`。
+其余客户端环境参数（版本号、设备 ID 等）都有默认值，一般无需配置；通知渠道按需再填。
 
 ### 第 4 步：手动跑一次验证
 
 **Actions** 标签页 → 左侧「每日自动签到」→ 右侧 **Run workflow**。
 
-想先保险一点，把 `dry_run` 勾上 —— 它只打印将要发出的请求，不会真的签到：
+先勾上 `dry_run` —— 它只走 `launch` + `detail` 只读探测，不会提交领取：
 
 ```
-[INFO ] 配置检查通过  method=POST  url=https://...
-[INFO ] Cookie  sess***e=11 (len=428)
-[INFO ] 将请求 POST https://...
-[OK   ] dry-run 结束，未产生任何真实请求
+[INFO ] 活动组已识别  group=pc_incentive_task_mvp_v3
+[OK   ] dry-run 结束，未提交领取请求
+[OK   ] 今日已签到（连续 1 天），只读演练未重复领取
 ```
 
-确认请求长得对，再取消 `dry_run` 跑一次真实的，看日志里是不是 `签到成功`。
+确认状态正常，再取消 `dry_run` 跑一次真实的；今天已签时会识别为 `ALREADY`，不会重复领。
 
 ### 第 5 步：等它自己跑
 
-什么都不用做了，每天 00:05 自动执行。任务失败 GitHub 会发邮件提醒你。
+什么都不用做了，每天 08:20 自动执行。任务失败 GitHub 会发邮件提醒你。
 
 ---
 
@@ -101,35 +95,30 @@
 
 | 变量 | 说明 |
 | --- | --- |
-| `DOUBAO_COOKIE` | 豆包登录后的完整 Cookie，**最关键的凭据** |
-| `DOUBAO_CHECKIN_URL` | 签到接口地址 |
+| `DOUBAO_COOKIE` | 豆包登录后的完整 Cookie，**最关键的凭据**，需含 `sessionid` 或 `sessionid_ss` |
 
-### 请求参数
+### 客户端环境（可选，一般用默认值）
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `DOUBAO_CHECKIN_METHOD` | `POST` | 支持 `GET` / `POST` / `PUT` |
-| `DOUBAO_CHECKIN_BODY` | 空 | 请求体，必须是合法 JSON；GET 请求可留空 |
-| `DOUBAO_EXTRA_HEADERS` | `{}` | 额外请求头，JSON 对象格式。接口要求 `Referer`、`X-Csrf-Token` 时填这里 |
+| `DOUBAO_BASE_URL` | `https://www.doubao.com` | 站点地址 |
+| `DOUBAO_CLIENT_VERSION` | `2.33.5` | 桌面客户端版本号，随请求带上 |
+| `DOUBAO_RUNTIME_VERSION` | `3.42.2` | 运行时版本号 |
+| `DOUBAO_DEVICE_ID` / `DOUBAO_WEB_ID` / `DOUBAO_FINGERPRINT` | 空 | 设备标识，风控要求时再补 |
 | `DOUBAO_TIMEOUT` | `20` | 单次请求超时（秒） |
 | `DOUBAO_RETRY` | `3` | 失败重试次数 |
 | `DOUBAO_RETRY_BACKOFF` | `3` | 重试退避基数（秒），实际间隔会加随机抖动 |
 
 ### 结果判定
 
-接口改版后，通常只需要改这几项就能救回来，不用动代码。
-
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `DOUBAO_SUCCESS_KEYWORDS` | `签到成功,领取成功,签到完成,success` | 命中任意一个即判成功 |
+| `DOUBAO_SUCCESS_KEYWORDS` | `签到成功,领取成功,签到完成,success` | 命中任意一个即判成功（兜底） |
 | `DOUBAO_ALREADY_KEYWORDS` | `已签到,已经签到,今日已领,重复签到,already` | 命中即判「今天签过了」，按成功处理 |
-| `DOUBAO_SUCCESS_JSON_PATH` | 空 | 精准判定，格式 `a.b.c=值`，多条用逗号分隔 |
-| `DOUBAO_AUTH_KEYWORDS` | `未登录,登录已过期,unauthorized,401,403` | 命中即提示 Cookie 失效 |
-| `DOUBAO_RISK_KEYWORDS` | `风控,验证,captcha,risk,verify,频繁` | 命中即提示疑似触发风控 |
+| `DOUBAO_AUTH_KEYWORDS` | `未登录,登录已过期,not login,unauthorized,登录失效` | 业务消息命中即提示 Cookie 失效 |
+| `DOUBAO_RISK_KEYWORDS` | `风控,验证,captcha,risk,verify,频繁` | 业务消息命中即提示疑似触发风控 |
 
-判定优先级：**已签到 → JSON 规则 → 成功关键词 → 风控 → 鉴权 → HTTP 2xx 兜底**。
-
-「已签到」排在第一位是有原因的：这类接口的「已签到」响应里往往同时包含「签到」二字，顺序反了就会把重复签到误报成新领取。
+主判定以详情回查的 `daily_checkin.checked_in_today` 为准；关键词只作为兜底。鉴权/风控只在业务消息字段上匹配，避免在整段 JSON、JWT 里误命中数字子串。
 
 ### 通知
 
@@ -154,10 +143,10 @@ git clone https://github.com/<your-name>/doubao-daily-checkin.git
 cd doubao-daily-checkin
 
 cp .env.example .env
-# 编辑 .env，填入 DOUBAO_COOKIE 和 DOUBAO_CHECKIN_URL
+# 编辑 .env，填入 DOUBAO_COOKIE
 
 python main.py --check     # 只检查配置是否完整
-python main.py --dry-run   # 只打印请求，不发出去
+python main.py --dry-run   # 只读探测活动与签到状态，不提交领取
 python main.py             # 真的签到
 ```
 
@@ -186,21 +175,22 @@ python -m unittest discover -s tests -v
 ## 工作原理
 
 ```
-GitHub Actions (UTC 16:05)
+GitHub Actions (UTC 00:20)
         │
         ▼
-   读取 Secrets ──► 构造 HTTP 请求（Cookie + Body）
+   读取 Secrets（Cookie）
         │
+        ├─ POST /alice/user/launch                  发现活动组 campaign_group_code
+        ├─ POST /alice/ug/campaign/v3/detail/        读取任务与 checked_in_today 状态
+        │       ├─ 今日已签 ──► ALREADY，静默结束
+        │       └─ 未领取
+        ├─ POST /alice/ug/campaign/landing/checkin  {"scene": 活动组} 提交领取
+        └─ 回查 detail 确认 checked_in_today=true ──► SUCCESS / 未确认则告警
         ▼
-   发送到签到接口 ──► 判定结果
-        │              ├── 签到成功 ──► 通知 + 写入任务摘要
-        │              ├── 今日已签到 ──► 视为成功，静默
-        │              └── 失败/风控/掉登录 ──► 重试 → 通知告警
-        ▼
-   退出码回传给 Actions
+   通知 + 写入任务摘要，退出码回传 Actions
 ```
 
-北京时间 00:05 对应 UTC 的 16:05（前一天），所以 `cron: "5 16 * * *"`。
+北京时间 08:20 对应 UTC 的 00:20（同一天），所以 `cron: "20 0 * * *"`；兜底 08:50 对应 `cron: "50 0 * * *"`。
 
 ---
 
@@ -211,15 +201,17 @@ doubao-daily-checkin/
 ├── main.py                      # 命令行入口
 ├── src/
 │   ├── config.py                # 环境变量 → 配置对象，含校验
-│   ├── client.py                # 签到请求 + 结果判定 + 重试
-│   ├── http.py                  # 极简 HTTP 客户端（标准库）
+│   ├── doubao_work.py           # 三步链路：launch → detail → checkin + 回查
+│   ├── client.py                 # 结果对象、判定与重试工具（兼容旧单接口）
+│   ├── http.py                   # 极简 HTTP 客户端（标准库）
 │   ├── notifier.py              # 五种通知通道
-│   └── logger.py                # 日志 + 脱敏 + Actions 分组
+│   └── logger.py                 # 日志 + 脱敏 + Actions 分组
 ├── tools/
-│   └── capture-snippet.js       # 浏览器控制台抓包脚本
+│   └── capture-snippet.js        # 浏览器控制台抓包脚本
 ├── tests/
-│   ├── test_core.py             # 判定逻辑单元测试
-│   └── test_integration.py      # 假接口端到端测试
+│   ├── test_core.py              # 判定逻辑单元测试
+│   ├── test_integration.py       # 假接口端到端测试
+│   └── test_doubao_work.py       # 三步链路假接口测试
 ├── docs/
 │   ├── 抓包指南.md
 │   └── 部署方式.md
@@ -236,14 +228,17 @@ doubao-daily-checkin/
 **Q：Cookie 多久失效？**
 不固定，通常几周到几个月。失效后日志会出现 `AUTH_FAILED` 并推送告警，重新抓一次 Cookie 更新 Secret 即可。别把 Cookie 贴到任何公开地方——它等同于你的登录状态。
 
-**Q：为什么接口地址要自己抓，不能写死在代码里？**
-官方没有公开这个接口，而且活动页随时改版。写死地址的脚本一改版就全废，还得等作者更新。配置化之后，你自己改一个 Secret 就恢复了。这也是为什么项目里带了一个抓包脚本。
+**Q：为什么不用自己填签到接口地址？**
+活动组和领取路径由脚本在 `launch` / `detail` 响应里自动发现，只需提供 Cookie；活动页改版导致路径失效时，再按 `src/doubao_work.py` 顶部的常量调整即可。
+
+**Q：返回风控码 710010702 怎么办？**
+该码表示领取接口需要活动页 SDK 生成的 `biz_params` / `AgwCommonParam` 风控字段，纯 HTTP 无法可靠伪造。脚本不会伪造这些字段，遇到时请在官方客户端手动点一次「立即签到」，之后脚本回读状态即可。
 
 **Q：会不会被封号？**
 风险自担。每天一次低频请求，行为上跟手动签到没有本质区别，但自动化行为本身可能不符合服务条款。**建议只给自己用、只跑一个账号、不要改成高频轮询。** 如果你介意，就别用。
 
 **Q：Actions 的定时任务准吗？**
-不准。GitHub 的高峰期延迟几分钟到几十分钟都很常见，所以项目配了 00:05 和 00:35 两次。因为脚本是幂等的，多跑一次没任何副作用。
+不准。GitHub 的高峰期延迟几分钟到几十分钟都很常见，所以项目配了 08:20 和 08:50 两次。因为脚本是幂等的，多跑一次没任何副作用。
 
 **Q：为什么同时有两个 cron，不会领两次吗？**
 不会。第二次请求通常返回「今日已签到」，脚本判定为 `ALREADY`，按成功处理并退出 0。

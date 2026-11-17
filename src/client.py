@@ -35,6 +35,7 @@ class CheckinResult:
     body_snippet: str = ""
     elapsed: float = 0.0
     attempts: int = 1
+    streak: Any = None
     raw: dict = field(default_factory=dict)
 
     @property
@@ -49,6 +50,7 @@ class CheckinResult:
             "message": self.message,
             "http_status": self.http_status,
             "amount": self.amount,
+            "streak": self.streak,
             "elapsed": round(self.elapsed, 2),
             "attempts": self.attempts,
             "body_snippet": self.body_snippet,
