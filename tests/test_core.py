@@ -20,7 +20,7 @@ from src.client import (  # noqa: E402
     _dig,
     _extract_amount,
 )
-from src.config import Config  # noqa: E402
+from src.config import Config, _normalize_cookie  # noqa: E402
 from src.logger import mask  # noqa: E402
 from src.notifier import build_message  # noqa: E402
 
@@ -115,6 +115,23 @@ class TestHelpers(unittest.TestCase):
         masked = mask("sessionid=abcdefghijklmn")
         self.assertNotIn("abcdefghij", masked)
         self.assertIn("len=", masked)
+
+
+class TestNormalizeCookie(unittest.TestCase):
+    def test_multiline_becomes_single_line(self):
+        raw = "sessionid=abc\nsessionid_ss=def"
+        self.assertEqual(_normalize_cookie(raw), "sessionid=abc; sessionid_ss=def")
+
+    def test_semicolon_separated_preserved(self):
+        raw = "sessionid=abc; sessionid_ss=def"
+        self.assertEqual(_normalize_cookie(raw), "sessionid=abc; sessionid_ss=def")
+
+    def test_strips_blank_parts_and_quotes(self):
+        raw = "  sessionid=abc ;\n  'sessionid_ss=def'  \n"
+        self.assertEqual(_normalize_cookie(raw), "sessionid=abc; sessionid_ss=def")
+
+    def test_carriage_return(self):
+        self.assertEqual(_normalize_cookie("a=1\r\nb=2"), "a=1; b=2")
 
 
 class TestNotifyMessage(unittest.TestCase):

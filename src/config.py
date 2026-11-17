@@ -64,6 +64,20 @@ def _split_list(raw: str) -> list[str]:
     return [item.strip() for item in raw.replace("，", ",").split(",") if item.strip()]
 
 
+def _normalize_cookie(raw: str) -> str:
+    """把粘贴成多行的 Cookie 归一化成标准单行 `k=v; k=v` 格式。
+
+    Secret 里若按换行粘贴多个字段，原样放进 Cookie 请求头会让第二个字段丢失
+    或造成头畸形；这里统一按换行/分号拆分，去掉空白后用 `; ` 重新拼接。
+    """
+    if not raw:
+        return raw
+    # 换行、回车都视为字段分隔符
+    parts = raw.replace("\r\n", ";").replace("\r", ";").replace("\n", ";")
+    cookies = [p.strip().strip("'\"") for p in parts.split(";")]
+    return "; ".join(p for p in cookies if p)
+
+
 def _parse_json_env(raw: str, name: str) -> dict:
     if not raw:
         return {}
@@ -117,7 +131,7 @@ class Config:
 def load_config() -> Config:
     _load_dotenv()
 
-    cookie = _get("DOUBAO_COOKIE", "COOKIE")
+    cookie = _normalize_cookie(_get("DOUBAO_COOKIE", "COOKIE"))
     url = _get("DOUBAO_CHECKIN_URL", "CHECKIN_URL")
 
     if not cookie:
